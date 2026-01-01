@@ -32,6 +32,9 @@ app.post("/v1/chat/completions", async (req, res) => {
   try {
     const payload = req.body || {};
 
+    // OpenAI n'accepte pas "metadata" ici (et Vapi peut en envoyer)
+    delete payload.metadata;
+
     if (!Array.isArray(payload.messages)) {
       return res.status(400).json({
         error: { message: "'messages' doit être un tableau." },
@@ -56,7 +59,6 @@ app.post("/v1/chat/completions", async (req, res) => {
       "seed",
       "logprobs",
       "top_logprobs",
-      "metadata",
     ]);
 
     // Petits mappings si Vapi envoie des variantes
@@ -68,15 +70,6 @@ app.post("/v1/chat/completions", async (req, res) => {
     const cleaned = {};
     for (const [k, v] of Object.entries(payload)) {
       if (ALLOWED.has(k)) cleaned[k] = v;
-    }
-
-    // Fix metadata: OpenAI veut des strings
-    if (cleaned.metadata && typeof cleaned.metadata === "object") {
-      const fixed = {};
-      for (const [k, v] of Object.entries(cleaned.metadata)) {
-        fixed[k] = String(v);
-      }
-      cleaned.metadata = fixed;
     }
 
     // Forcer stream pour Vapi

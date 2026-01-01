@@ -3,9 +3,9 @@ import cors from "cors";
 import OpenAI from "openai";
 
 const app = express();
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 10000;
 
-// Clé OpenAI lue dans les variables d’environnement (Render)
+// Clé API OpenAI prise dans les variables d'env Render
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
@@ -13,34 +13,49 @@ const client = new OpenAI({
 app.use(cors());
 app.use(express.json());
 
-// Endpoint compatible "chat/completions" OpenAI
-app.post("/chat/completions", async (req, res) => {
+// Route de test simple
+app.get("/v1/test", (req, res) => {
+  res.json({ ok: true, message: "Proxy OpenAI fonctionne" });
+});
+
+// Route compatible OpenAI chat.completions
+app.post("/v1/chat/completions", async (req, res) => {
   try {
-    const { model, messages, max_tokens, temperature, top_p } = req.body;
-
-    const response = await client.chat.completions.create({
-      model: model || "gpt-4.1-mini",
+    const {
       messages,
-      max_tokens,
+      model = "gpt-4.1-mini",
+      temperature = 0.7,
+      max_tokens = 512,
+    } = req.body || {};
+
+    if (!messages || !Array.isArray(messages)) {
+      return res.status(400).json({
+        error: {
+          message: "Body invalide: 'messages' doit être un tableau.",
+        },
+      });
+    }
+
+    const completion = await client.chat.completions.create({
+      model,
+      messages,
       temperature,
-      top_p,
+      max_tokens,
     });
 
-    // On renvoie la même structure qu’OpenAI
-    res.json(response);
-  } catch (error) {
-    console.error("Proxy error:", error.response?.data || error.message);
-    res.status(500).json({
-      error: {
-        message: "Error calling OpenAI from proxy",
-        details: error.response?.data || error.message,
-      },
-    });
+    // On renvoie exactement le format OpenAI
+    res.json(completion);
+  } catch (err) {
+    console.error("OpenAI error:", err.response?.data || err.message);
+    res
+      .status(err.response?.status || 500)
+      .json({ error: err.response?.data || { message: err.message } });
   }
 });
 
-app.get("/", (_req, res) => {
-  res.send("Vapi → OpenAI proxy OK");
+// Healthcheck Render
+app.get("/", (req, res) => {
+  res.send("vapi-openai-proxy running");
 });
 
 app.listen(port, () => {

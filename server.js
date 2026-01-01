@@ -12,58 +12,72 @@ if (!OPENAI_API_KEY) {
   process.exit(1);
 }
 
+// Middleware JSON
 app.use(express.json());
 
-// Route appelée par Vapi : /v1/chat/completions
+// CORS simple pour tests depuis le navigateur (Hoppscotch)
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
+// Endpoint attendu par Vapi : OpenAI-compatible en STREAM
 app.post("/v1/chat/completions", async (req, res) => {
   try {
-    const {
-      model = "gpt-4.1-mini",
-      messages,
-      ...rest
-    } = req.body || {};
+    const payload = req.body || {};
 
-    if (!Array.isArray(messages)) {
+    if (!Array.isArray(payload.messages)) {
       return res.status(400).json({
-        error: { message: "'messages' doit être un tableau." }
+        error: { message: "'messages' doit être un tableau." },
       });
     }
 
-    // On force stream à false pour simplifier
-    const openaiBody = {
-      model,
-      messages,
-      stream: false,
-      ...rest
+    // On force stream = true pour que la réponse soit un flux SSE
+    const bodyForOpenAI = {
+      ...payload,
+      stream: true,
     };
 
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify(openaiBody),
-    });
+    const openaiResponse = await fetch(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+        },
+        body: JSON.stringify(bodyForOpenAI),
+      }
+    );
 
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error("Erreur OpenAI:", data);
-      return res.status(response.status).json({ error: data.error || data });
+    if (!openaiResponse.ok) {
+      const err = await openaiResponse.text().catch(() => "");
+      console.error("Erreur OpenAI:", openaiResponse.status, err);
+      res.status(openaiResponse.status).send(err || "OpenAI error");
+      return;
     }
 
-    const choice = data.choices?.[0];
-    const content = choice?.message?.content ?? "";
+    // On renvoie EXACTEMENT le flux SSE d’OpenAI vers Vapi
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
 
-    // Format que Vapi attend
-    return res.json({
-      messages: [
-        {
-          role: "assistant",
-          content
-        }
-      ]
+    openaiResponse.body.on("data", (chunk) => {
+      res.write(chunk);
+    });
+
+    openaiResponse.body.on("end", () => {
+      res.end();
+    });
+
+    openaiResponse.body.on("error", (err) => {
+      console.error("Erreur de stream OpenAI:", err);
+      res.end();
     });
   } catch (error) {
     console.error("Erreur proxy:", error);
@@ -71,7 +85,7 @@ app.post("/v1/chat/completions", async (req, res) => {
   }
 });
 
-// Route simple pour vérifier que le service tourne
+// Route de test simple
 app.get("/", (_req, res) => {
   res.send("Vapi OpenAI proxy is running.");
 });

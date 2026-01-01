@@ -27,7 +27,7 @@ app.get("/", (_req, res) => {
   res.send("Vapi OpenAI proxy is running.");
 });
 
-// Vapi -> OpenAI (stream SSE)
+// Vapi -> OpenAI (stream SSE passthrough)
 app.post("/v1/chat/completions", async (req, res) => {
   try {
     const payload = req.body || {};

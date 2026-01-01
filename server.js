@@ -29,19 +29,33 @@ app.use((req, res, next) => {
 // Endpoint attendu par Vapi : OpenAI-compatible en STREAM
 app.post("/v1/chat/completions", async (req, res) => {
   try {
-    const payload = req.body || {};
+const payload = req.body || {};
 
-    if (!Array.isArray(payload.messages)) {
-      return res.status(400).json({
-        error: { message: "'messages' doit être un tableau." },
-      });
-    }
+if (!Array.isArray(payload.messages)) {
+  return res.status(400).json({
+    error: { message: "'messages' doit être un tableau." },
+  });
+}
 
-    // On force stream = true pour que la réponse soit un flux SSE
-    const bodyForOpenAI = {
-      ...payload,
-      stream: true,
-    };
+// On sépare metadata du reste
+const { metadata, ...rest } = payload;
+
+// On convertit toutes les valeurs de metadata en string (comme OpenAI l’exige)
+let fixedMetadata = undefined;
+if (metadata && typeof metadata === "object") {
+  fixedMetadata = {};
+  for (const [key, value] of Object.entries(metadata)) {
+    fixedMetadata[key] = String(value);
+  }
+}
+
+// Body final envoyé à OpenAI, avec metadata corrigé
+const bodyForOpenAI = {
+  ...rest,
+  ...(fixedMetadata ? { metadata: fixedMetadata } : {}),
+  stream: true,
+};
+
 
     const openaiResponse = await fetch(
       "https://api.openai.com/v1/chat/completions",
